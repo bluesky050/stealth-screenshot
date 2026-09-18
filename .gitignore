@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.venv/
+build/
+dist/
+.tools/
+*.log
+.hermes/
+.env
+.env.*
+!.env.example
+# Historical diagnostics inject keyboard events; do not run as unit tests.
+test_hotkey.py
+test_hotkey_direct.py
+test_hook_minimal.py

@@ -1,0 +1,5 @@
+{
+  "hotkey": "ctrl+q",
+  "quit_hotkey": "ctrl+alt+shift+q",
+  "tray_icon": false
+}
