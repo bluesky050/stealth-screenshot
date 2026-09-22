@@ -253,4 +253,3 @@ class InputOverlay:
             logger.exception('overlay_message_failed message=%s', message)
             self._cancel('error')
             return 0
-
