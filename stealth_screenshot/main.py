@@ -1,7 +1,7 @@
 """Stealth Screenshot — invisible screen capture for Windows.
 
-No windows, no overlays, no visual feedback. Hotkey triggers mouse
-drag-select; the captured region goes straight to the clipboard.
+A nearly transparent input window receives drag-select across all displays.
+It is hidden before the selected region is captured to the clipboard.
 """
 
 import ctypes
@@ -15,6 +15,7 @@ from ctypes import wintypes
 from .config import load_config
 from .controller import ScreenshotController
 from .hotkey import HotkeyListener
+from . import diagnostics
 
 # ---------------------------------------------------------------------------
 # DPI awareness — must be set before any GUI / screen operations
@@ -98,6 +99,7 @@ def main() -> None:
         format="%(asctime)s [%(levelname)s] %(message)s",
     )
     logger = logging.getLogger("stealth-screenshot")
+    diagnostic_enabled = diagnostics.configure()
 
     # 1. DPI awareness
     _set_dpi_awareness()
@@ -109,7 +111,7 @@ def main() -> None:
     quit_hotkey_str = cfg.get("quit_hotkey")
     tray_enabled = cfg.get("tray_icon", False)
 
-    # 3. Create controller and start mouse hook thread
+    # 3. Create controller and start the hidden selection window
     controller = ScreenshotController()
     controller.start()
 
@@ -143,7 +145,9 @@ def main() -> None:
 
     try:
         while not quit_event.is_set():
-            quit_event.wait(timeout=0.5)
+            quit_event.wait(timeout=1)
+            if diagnostic_enabled:
+                diagnostics.sample(controller)
     except KeyboardInterrupt:
         pass
     finally:

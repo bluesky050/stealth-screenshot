@@ -1,10 +1,11 @@
-"""Core screenshot orchestration — ties hotkey, mouse hook, capture, clipboard."""
+"""Core screenshot orchestration — hotkey, input window, capture, clipboard."""
 
 import logging
 import threading
+import time
 
 from .clipboard import ClipboardWriter
-from .mouse_hook import MouseHook
+from .input_overlay import InputOverlay
 from .screen_capture import ScreenCapture
 
 logger = logging.getLogger(__name__)
@@ -16,14 +17,14 @@ class ScreenshotController:
     """Coordinates the invisible screenshot flow.
 
     Flow:
-      1. Hotkey pressed → arm mouse hook
+      1. Hotkey pressed → show selection window
       2. Mouse down → record start point
       3. Mouse up → record end point, compute rect, capture, clipboard
       4. Disarm
     """
 
     def __init__(self):
-        self._mouse_hook = MouseHook(
+        self._selector = InputOverlay(
             on_drag_start=self._on_drag_start,
             on_drag_end=self._on_drag_end,
         )
@@ -31,26 +32,30 @@ class ScreenshotController:
         self._lock = threading.Lock()
 
     def start(self) -> None:
-        """Start the mouse hook thread (call once at app startup)."""
-        self._mouse_hook.start()
+        """Start the hidden selection window thread."""
+        self._selector.start()
 
     def trigger(self) -> None:
         """Called when the hotkey is pressed — enters screenshot mode."""
+        if self._selector.is_armed():
+            return
         with self._lock:
             self._start_point = None
-        self._mouse_hook.arm()
-        logger.debug("Screenshot mode armed")
+        self._selector.arm()
+        logger.info("hotkey_trigger screenshot_armed")
 
     def _on_drag_start(self, x: int, y: int) -> None:
         self._start_point = (x, y)
-        logger.debug("Drag start at (%d, %d)", x, y)
+        logger.info("mouse_down x=%d y=%d", x, y)
 
     def _on_drag_end(self, x: int, y: int) -> None:
+        logger.info("mouse_up x=%d y=%d", x, y)
         with self._lock:
             start = self._start_point
             self._start_point = None
 
         if start is None:
+            logger.warning("mouse_up_without_start")
             return
 
         sx, sy = start
@@ -63,20 +68,28 @@ class ScreenshotController:
         rh = abs(ey - sy)
 
         if rw < MIN_DRAG_DISTANCE or rh < MIN_DRAG_DISTANCE:
-            logger.debug("Drag too small (%d×%d), ignoring", rw, rh)
+            logger.info("Drag too small (%d×%d), ignoring", rw, rh)
             return
 
-        logger.debug("Capturing rect (%d, %d, %d, %d)", rx, ry, rw, rh)
-        img = ScreenCapture.capture((rx, ry, rw, rh))
+        logger.info("capture_begin rect=(%d,%d,%d,%d)", rx, ry, rw, rh)
+        started = time.monotonic()
+        try:
+            img = ScreenCapture.capture((rx, ry, rw, rh))
+        except Exception:
+            logger.exception("capture_exception")
+            return
         if img is None:
             logger.warning("Screen capture failed — clipboard untouched")
             return
 
-        if ClipboardWriter.write_image(img):
-            logger.debug("Screenshot copied to clipboard (%dx%d)", img.width, img.height)
-        else:
-            logger.warning("Failed to write to clipboard")
+        logger.info("capture_returned width=%d height=%d elapsed_ms=%.1f", img.width, img.height, (time.monotonic() - started) * 1000)
+        logger.info("clipboard_begin")
+        try:
+            result = ClipboardWriter.write_image(img)
+            logger.info("clipboard_writer_returned result=%s total_elapsed_ms=%.1f", result, (time.monotonic() - started) * 1000)
+        except Exception:
+            logger.exception("clipboard_exception")
 
     def stop(self) -> None:
-        """Stop the mouse hook thread."""
-        self._mouse_hook.stop()
+        """Stop the selection window thread."""
+        self._selector.stop()
